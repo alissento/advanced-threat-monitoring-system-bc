@@ -1,10 +1,10 @@
 # CiliumNetworkPolicy — ebs-csi-controller (kube-system)
-# Fixes: CrashLoopBackOff with "dial tcp: lookup sts.eu-central-1.amazonaws.com: i/o timeout"
+# Fixes: CrashLoopBackOff with "dial tcp: lookup sts.eu-west-1.amazonaws.com: i/o timeout"
 # under policyEnforcementMode=always default-deny.
 # toFQDNs is broken in this Cilium ENI deployment (ipcache not populated for resolved IPs);
 # STS uses toEntities:world (public path via fck-nat). STS VPC endpoint CIDR rule was removed
 # because VPC endpoint IPs change on every cluster rebuild.
-# EC2 VPC endpoint IPs (10.30.10.136/32, 10.30.11.101/32) are retained.
+# EC2 API egress also uses toEntities:world (pinned EC2 VPC endpoint CIDRs removed).
 # See: new-infra/k8s/system-netpols/external-secrets-netpol.yaml (working precedent).
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
@@ -54,13 +54,11 @@ spec:
         - ports:
             - port: "443"
               protocol: TCP
-    # EC2 VPC endpoint — DescribeAvailabilityZones, AttachVolume, etc.
-    # IPs are stable ENI addresses; toFQDNs cannot be used (see header comment).
-    # Verify with: aws ec2 describe-network-interfaces --query "NetworkInterfaces[*].PrivateIpAddress"
-    #              --filters "Name=description,Values=*ec2*" --region eu-central-1
-    - toCIDRSet:
-        - cidr: 10.30.10.136/32
-        - cidr: 10.30.11.101/32
+    # EC2 API — DescribeAvailabilityZones, AttachVolume, etc.
+    # Previously pinned to the EC2 VPC endpoint ENI IPs via toCIDRSet; those IPs change on every
+    # VPC rebuild / new account, so the rule now uses toEntities:world:443 (same pattern as STS).
+    - toEntities:
+        - world
       toPorts:
         - ports:
             - port: "443"

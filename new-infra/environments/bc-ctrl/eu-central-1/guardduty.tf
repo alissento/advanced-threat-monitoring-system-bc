@@ -1,5 +1,5 @@
 #--------------------------------------------------------------
-# GuardDuty — bc-ctrl (account 997916278486, eu-central-1)
+# GuardDuty — bc-ctrl (account 929026881368, eu-west-1)
 #
 # DETECTOR OWNERSHIP: org-managed (delegated admin = account
 # 957996720803, Control Tower / Landing Zone). A detector already
@@ -180,8 +180,8 @@ resource "aws_s3_bucket_policy" "guardduty_logs" {
         Condition = {
           StringEquals = {
             "s3:x-amz-acl"      = "bucket-owner-full-control"
-            "aws:SourceAccount"  = data.aws_caller_identity.current.account_id
-            "aws:SourceArn"      = "arn:aws:guardduty:${local.region}:${data.aws_caller_identity.current.account_id}:detector/${data.aws_guardduty_detector.existing.id}"
+            "aws:SourceAccount" = data.aws_caller_identity.current.account_id
+            "aws:SourceArn"     = "arn:aws:guardduty:${local.region}:${data.aws_caller_identity.current.account_id}:detector/${data.aws_guardduty_detector.existing.id}"
           }
         }
       }

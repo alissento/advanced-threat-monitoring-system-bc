@@ -66,7 +66,7 @@ resource "aws_security_group" "nomad_efs" {
 # *number* to be known at plan time; element values (subnet_id) can be
 # apply-time-unknown.
 #
-# bc-prd is permanently 2-AZ (eu-central-1a + eu-central-1b), so count = 2 is
+# bc-prd is permanently 2-AZ (eu-west-1a + eu-west-1b), so count = 2 is
 # safe to hard-code. If AZs are ever expanded, increment this value AND run
 # `terraform state mv` for existing mount targets before applying to avoid
 # destroying live mount targets on warm-state deployments:
@@ -75,7 +75,7 @@ resource "aws_security_group" "nomad_efs" {
 #     'aws_efs_mount_target.nomad_oasis[0]'
 # ---------------------------------------------------------------------------
 resource "aws_efs_mount_target" "nomad_oasis" {
-  count = 2 # one per bc-prd private subnet — eu-central-1a and eu-central-1b
+  count = 2 # one per bc-prd private subnet — eu-west-1a and eu-west-1b
 
   file_system_id  = aws_efs_file_system.nomad_oasis.id
   subnet_id       = module.vpc.private_subnet_ids[count.index]
@@ -127,8 +127,8 @@ resource "kubernetes_storage_class" "efs_nomad" {
 # out of the box).  This resource creates it so PVC binding succeeds.
 #
 # WaitForFirstConsumer lets the scheduler pick a node before the EBS volume is
-# provisioned, avoiding cross-AZ binding traps when nodes span eu-central-1a
-# and eu-central-1b.
+# provisioned, avoiding cross-AZ binding traps when nodes span eu-west-1a
+# and eu-west-1b.
 #
 # Import note: if this SC was already applied live via kubectl during incident
 # response, adopt it with:

@@ -9,9 +9,9 @@ terraform {
   }
 
   backend "s3" {
-    bucket = "bc-uatms-terraform-state-997916278486"
+    bucket = "bc-uatms-terraform-state-929026881368"
     key    = "v8/environments/bc-ctrl/terraform.tfstate"
-    region = "eu-central-1"
+    region = "eu-west-1"
   }
 }
 

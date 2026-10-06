@@ -10,7 +10,7 @@
 #   HOST_ROLE   — one of: "indexer" | "manager" | "dashboard"
 #
 # Optional env vars:
-#   REGION      — AWS region (default: eu-central-1, overridden by IMDSv2)
+#   REGION      — AWS region (default: eu-west-1, overridden by IMDSv2)
 #   WAZUH_VERSION — Wazuh package version (default: 4.14.4)
 #                   PINNING INVARIANT: indexer, manager, and dashboard MUST all
 #                   use the same version. Mismatched versions cause OpenSearch
@@ -23,14 +23,14 @@
 #                       PLACEHOLDER_SHUFFLE_HOOK_ID, API_USERNAME, INDEXER_USERNAME
 #
 # S3 bucket for certs handoff:
-#   s3://bc-uatms-terraform-state-252159218834/certs/wazuh-certs-YYYYMMDD.tar
+#   s3://bc-uatms-terraform-state-929026881368/certs/wazuh-certs-YYYYMMDD.tar
 # =============================================================================
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
 # Globals
 # ---------------------------------------------------------------------------
-REGION="${REGION:-eu-central-1}"
+REGION="${REGION:-eu-west-1}"
 # Bug C fix: pinned to 4.14.4 across indexer+manager+dashboard.
 # 4.9.x packages.wazuh.com/4.9/ returned HTTP 403 (repo retired).
 # The 4.x rolling repo serves 4.14.4 as of 2026-04; all three packages
@@ -40,7 +40,7 @@ WAZUH_SECRET="bc/wazuh/manager"
 # Account-suffixed bucket created by Terraform (locals.tf : wazuh_bucket).
 # Falls back to the legacy un-suffixed name for backward compat. The bucket
 # is passed in via user_data env so we don't hardcode the account ID here.
-WAZUH_S3_BUCKET="${WAZUH_S3_BUCKET:-bc-uatms-wazuh-snapshots-997916278486}"
+WAZUH_S3_BUCKET="${WAZUH_S3_BUCKET:-bc-uatms-wazuh-snapshots-929026881368}"
 CERT_BUCKET="${WAZUH_S3_BUCKET}"
 CERT_DATE="$(date +%Y%m%d)"
 CERT_S3_KEY="certs/wazuh-certs-${CERT_DATE}.tar"
@@ -1515,33 +1515,33 @@ if [[ "${HOST_ROLE}" == "manager" || "${HOST_ROLE}" == "all_in_one" ]]; then
     <remove_from_bucket>no</remove_from_bucket>
 
     <bucket type="cloudtrail">
-      <name>bc-cloudtrail-logs-997916278486</name>
+      <name>bc-cloudtrail-logs-929026881368</name>
       <aws_account_id>${AWS_ACCOUNT_ID}</aws_account_id>
       <path>AWSLogs/</path>
       <only_logs_after>2026-JAN-01</only_logs_after>
-      <regions>eu-central-1</regions>
+      <regions>eu-west-1</regions>
     </bucket>
 
     <bucket type="guardduty">
-      <name>bc-guardduty-logs-997916278486</name>
+      <name>bc-guardduty-logs-929026881368</name>
       <aws_account_id>${AWS_ACCOUNT_ID}</aws_account_id>
       <only_logs_after>2026-JAN-01</only_logs_after>
-      <regions>eu-central-1</regions>
+      <regions>eu-west-1</regions>
     </bucket>
 
     <bucket type="vpcflow">
-      <name>bc-vpcflow-logs-997916278486</name>
+      <name>bc-vpcflow-logs-929026881368</name>
       <!-- No <path> prefix: Wazuh's vpcflow handler navigates
            AWSLogs/<account_id>/vpcflowlogs/<region>/... natively.
            A <path>AWSLogs/</path> prefix doubled the directory to
            AWSLogs/AWSLogs/ and caused "No logs found". -->
       <aws_account_id>${AWS_ACCOUNT_ID}</aws_account_id>
       <only_logs_after>2026-JAN-01</only_logs_after>
-      <regions>eu-central-1</regions>
+      <regions>eu-west-1</regions>
     </bucket>
 
     <bucket type="config">
-      <name>bc-config-logs-997916278486</name>
+      <name>bc-config-logs-929026881368</name>
       <!-- NOTE: AWS Config delivery channel not yet configured (no
            aws_config_delivery_channel Terraform resource exists).
            This bucket will be empty until that wiring is added.
@@ -1564,7 +1564,7 @@ if [[ "${HOST_ROLE}" == "manager" || "${HOST_ROLE}" == "all_in_one" ]]; then
        Auth via the wazuh-ec2-role instance profile — needs the
        wazuh-eks-audit-read inline policy (logs:GetLogEvents /
        FilterLogEvents / DescribeLogStreams / DescribeLogGroups on
-       arn:aws:logs:eu-central-1:${AWS_ACCOUNT_ID}:log-group:/aws/eks/bc-uatms-prd-eks/cluster:*).
+       arn:aws:logs:eu-west-1:${AWS_ACCOUNT_ID}:log-group:/aws/eks/bc-uatms-prd-eks/cluster:*).
 
        NOTES (learned during F-10 bring-up):
          * <only_logs_after> is parsed as UTC — use the UTC date.
@@ -1582,7 +1582,7 @@ if [[ "${HOST_ROLE}" == "manager" || "${HOST_ROLE}" == "all_in_one" ]]; then
     <skip_on_error>yes</skip_on_error>
     <service type="cloudwatchlogs">
       <aws_log_groups>/aws/eks/bc-uatms-prd-eks/cluster</aws_log_groups>
-      <regions>eu-central-1</regions>
+      <regions>eu-west-1</regions>
       <only_logs_after>2026-JUN-10</only_logs_after>
     </service>
   </wodle>

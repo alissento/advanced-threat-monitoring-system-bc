@@ -1,5 +1,5 @@
 # CiliumNetworkPolicy — efs-csi-controller (kube-system)
-# Fixes: CrashLoopBackOff with "dial tcp: lookup sts.eu-central-1.amazonaws.com: i/o timeout"
+# Fixes: CrashLoopBackOff with "dial tcp: lookup sts.eu-west-1.amazonaws.com: i/o timeout"
 # under policyEnforcementMode=always default-deny.
 # toFQDNs is broken in this Cilium ENI deployment (ipcache not populated for resolved IPs);
 # STS and EFS API both use toEntities:world (public path via fck-nat). STS VPC endpoint CIDR

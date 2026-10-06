@@ -23,6 +23,10 @@ on:
         type: choice
         options: ["true", "false"]
 
+env:
+  AWS_ACCOUNT_ID: "929026881368"
+  AWS_REGION: "eu-west-1"
+
 jobs:
   red-team-demo:
     name: "🔴 Red Team Demo — ${{ inputs.phases }}"
@@ -36,13 +40,13 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::845517756853:role/GitHubActionsDeployRole
-          aws-region: eu-central-1
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/GitHubActionsDeployRole
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Get EKS kubeconfig
         run: |
           aws eks update-kubeconfig \
-            --region eu-central-1 \
+            --region ${{ env.AWS_REGION }} \
             --name bc-uatms-prd-eks \
             --kubeconfig /tmp/kubeconfig-demo
           echo "KUBECONFIG=/tmp/kubeconfig-demo" >> "$GITHUB_ENV"
@@ -66,13 +70,13 @@ jobs:
           echo ""
           echo "  Wazuh Dashboard → https://localhost:8443"
           echo "  aws ssm start-session \\"
-          echo "    --target i-0f5b346b3a4f626a6 --region eu-central-1 \\"
+          echo "    --target i-0f5b346b3a4f626a6 --region ${{ env.AWS_REGION }} \\"
           echo "    --document-name AWS-StartPortForwardingSession \\"
           echo "    --parameters '{\"portNumber\":[\"443\"],\"localPortNumber\":[\"8443\"]}'"
           echo ""
           echo "  MISP → https://localhost:8444"
           echo "  aws ssm start-session \\"
-          echo "    --target i-0a32ffa7d8ba62be9 --region eu-central-1 \\"
+          echo "    --target i-0a32ffa7d8ba62be9 --region ${{ env.AWS_REGION }} \\"
           echo "    --document-name AWS-StartPortForwardingSession \\"
           echo "    --parameters '{\"portNumber\":[\"443\"],\"localPortNumber\":[\"8444\"]}'"
           echo ""

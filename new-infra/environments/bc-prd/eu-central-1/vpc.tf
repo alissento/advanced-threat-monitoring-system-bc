@@ -41,7 +41,7 @@ resource "aws_security_group" "fck_nat_prd" {
 }
 
 resource "aws_instance" "fck_nat_prd" {
-  ami                         = "ami-077be74ead50d19aa" # fck-nat ARM64 eu-central-1
+  ami                         = data.aws_ami.fck_nat.id # fck-nat ARM64 (region-agnostic lookup)
   instance_type               = "t4g.nano"
   subnet_id                   = module.vpc.public_subnet_ids[0]
   associate_public_ip_address = true
@@ -57,6 +57,10 @@ resource "aws_instance" "fck_nat_prd" {
               EOF
 
   tags = merge(local.common_tags, { Name = "fck-nat-prd" })
+
+  lifecycle {
+    ignore_changes = [ami]
+  }
 }
 
 resource "aws_iam_role" "fck_nat_prd" {

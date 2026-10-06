@@ -1,12 +1,12 @@
 locals {
-  region        = "eu-central-1"
+  region        = "eu-west-1"
   company       = "big-chemistry"
   env           = "ctrl"
   platform_name = "bc-uatms"
 
   vpc_cidr     = "10.0.0.0/16"
-  prd_vpc_cidr = "10.30.0.0/16"                     # bc-prd — Wazuh agents connect via VPC peering
-  azs          = ["eu-central-1a", "eu-central-1b"] # EKS requires 2+ AZs
+  prd_vpc_cidr = "10.30.0.0/16"               # bc-prd — Wazuh agents connect via VPC peering
+  azs          = ["eu-west-1a", "eu-west-1b"] # EKS requires 2+ AZs
 
   common_tags = {
     Project     = "UATMS"
@@ -16,7 +16,7 @@ locals {
   }
 
   # All S3 bucket names are account-suffixed for global uniqueness and cold-start reproducibility.
-  # The old account (845517756853) still owns the unsuffixed names — never use bare names.
+  # Older accounts may still own the unsuffixed names — never use bare names.
   wazuh_bucket      = "bc-uatms-wazuh-snapshots-${data.aws_caller_identity.current.account_id}"
   vpcflow_bucket    = "bc-vpcflow-logs-${data.aws_caller_identity.current.account_id}"
   cloudtrail_bucket = "bc-cloudtrail-logs-${data.aws_caller_identity.current.account_id}"

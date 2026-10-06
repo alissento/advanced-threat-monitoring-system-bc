@@ -22,7 +22,7 @@
 #   bash update-fill-in-secrets.sh
 # ──────────────────────────────────────────────────────────────────
 set -euo pipefail
-REGION="eu-central-1"
+REGION="eu-west-1"
 
 : "${MISP_API_KEY:?  Set MISP_API_KEY before running}"
 : "${SHUFFLE_HOOK_ID:?  Set SHUFFLE_HOOK_ID before running}"

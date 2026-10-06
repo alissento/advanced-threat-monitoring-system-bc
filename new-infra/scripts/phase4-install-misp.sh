@@ -20,7 +20,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-REGION="${REGION:-eu-central-1}"
+REGION="${REGION:-eu-west-1}"
 MISP_SECRET="bc/misp"
 MISP_BASEURL="${MISP_BASEURL:-https://misp.bc-ctrl.internal}"
 DATA_DEV="/dev/nvme1n1"

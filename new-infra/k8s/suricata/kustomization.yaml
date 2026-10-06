@@ -4,7 +4,7 @@
 # Flux reconciles this path: new-infra/k8s/suricata/
 # Suricata runs as a DaemonSet in bc-prd (role: workload nodes)
 # receiving traffic-mirrored packets from bc-prd ENIs via the
-# NLB defined in bc-prd/eu-central-1/traffic-mirroring.tf.
+# NLB defined in bc-prd/eu-west-1/traffic-mirroring.tf.
 #
 # Flux postBuild substitutes ${AWS_ACCOUNT_ID} in image references.
 #

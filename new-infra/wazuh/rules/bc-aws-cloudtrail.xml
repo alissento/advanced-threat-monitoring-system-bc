@@ -3,7 +3,7 @@
 
   Rule ID range: 100300-100399 (reserved for bc-aws)
   Telemetry source: wodle aws-s3 module on the Wazuh manager, reading the
-                    bc-cloudtrail-logs-997916278486 S3 bucket. Decoded by the
+                    bc-cloudtrail-logs-929026881368 S3 bucket. Decoded by the
                     built-in Wazuh "aws" decoder.
 
   Deployed to: /var/ossec/etc/rules/bc-aws-cloudtrail.xml on the manager

@@ -127,8 +127,8 @@ resource "aws_iam_role_policy" "wazuh_ec2_inline" {
           "secretsmanager:DescribeSecret"
         ]
         Resource = [
-          "arn:aws:secretsmanager:eu-central-1:${data.aws_caller_identity.current.account_id}:secret:bc/wazuh/*",
-          "arn:aws:secretsmanager:eu-central-1:${data.aws_caller_identity.current.account_id}:secret:bc/misp*"
+          "arn:aws:secretsmanager:${local.region}:${data.aws_caller_identity.current.account_id}:secret:bc/wazuh/*",
+          "arn:aws:secretsmanager:${local.region}:${data.aws_caller_identity.current.account_id}:secret:bc/misp*"
         ]
       },
       {
@@ -215,7 +215,7 @@ resource "aws_iam_role_policy" "wazuh_ec2_inline" {
           "logs:DescribeLogStreams",
           "logs:DescribeLogGroups"
         ]
-        Resource = "arn:aws:logs:eu-central-1:${data.aws_caller_identity.current.account_id}:log-group:/aws/eks/bc-uatms-prd-eks/cluster:*"
+        Resource = "arn:aws:logs:${local.region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/eks/bc-uatms-prd-eks/cluster:*"
       }
     ]
   })
@@ -334,7 +334,7 @@ resource "aws_s3_object" "wazuh_rules" {
 ###############################################################
 
 resource "aws_instance" "wazuh" {
-  ami                         = "ami-0a457777ab864ed6f" # Amazon Linux 2023 x86_64 eu-central-1
+  ami                         = data.aws_ami.al2023.id # Amazon Linux 2023 x86_64
   instance_type               = "t3.xlarge"
   subnet_id                   = module.vpc.private_subnet_ids[0]
   user_data_replace_on_change = true
@@ -374,7 +374,7 @@ resource "aws_instance" "wazuh" {
 
     # Download and run install script
     aws s3 cp s3://${aws_s3_object.wazuh_install_script.bucket}/${aws_s3_object.wazuh_install_script.key} \
-      /tmp/phase3-install-wazuh.sh --region eu-central-1
+      /tmp/phase3-install-wazuh.sh --region ${local.region}
     chmod +x /tmp/phase3-install-wazuh.sh
 
     HOST_ROLE=all_in_one \
@@ -388,10 +388,14 @@ resource "aws_instance" "wazuh" {
     aws_s3_object.wazuh_install_script,
     aws_s3_object.wazuh_rules,
   ]
+
+  lifecycle {
+    ignore_changes = [ami]
+  }
 }
 
 resource "aws_ebs_volume" "wazuh_data" {
-  availability_zone = local.azs[0] # eu-central-1a — same AZ as private_subnet_ids[0]
+  availability_zone = local.azs[0] # eu-west-1a — same AZ as private_subnet_ids[0]
   size              = 200
   type              = "gp3"
   iops              = 6000

@@ -32,7 +32,7 @@
 #   Newly-generated human logins are printed to stderr ONCE. Save them.
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
-REGION="${AWS_REGION:-eu-central-1}"
+REGION="${AWS_REGION:-eu-west-1}"
 MISP_ADMIN_EMAIL="${MISP_ADMIN_EMAIL:-admin@bc-ctrl.internal}"
 
 log() { echo "$@" >&2; }

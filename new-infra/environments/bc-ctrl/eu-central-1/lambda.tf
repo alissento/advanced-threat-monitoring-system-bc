@@ -43,7 +43,7 @@ resource "aws_iam_role" "lambda_quarantine_ec2_role" {
 }
 
 resource "aws_iam_policy" "lambda_quarantine_ec2_policy" {
-  name   = "lambda_quarantine_ec2_policy"
+  name = "lambda_quarantine_ec2_policy"
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -51,16 +51,16 @@ resource "aws_iam_policy" "lambda_quarantine_ec2_policy" {
       {
         Effect = "Allow"
         Action = [
-          "ec2:DescribeInstances", // Required to identify the instance and its current state
-          "ec2:DescribeSecurityGroups", // Required to identify the instance's current security groups
-          "ec2:ModifyInstanceAttribute", // Required to modify the instance's security groups
-          "eks:DescribeCluster", // Required to get EKS cluster details if the instance is part of an EKS cluster
-          "eks:ListClusters", // Required to list EKS clusters to find the relevant cluster for the instance
-          "ec2:DissociateIamInstanceProfile",  // Required to remove any existing IAM instance profile associations
+          "ec2:DescribeInstances",                      // Required to identify the instance and its current state
+          "ec2:DescribeSecurityGroups",                 // Required to identify the instance's current security groups
+          "ec2:ModifyInstanceAttribute",                // Required to modify the instance's security groups
+          "eks:DescribeCluster",                        // Required to get EKS cluster details if the instance is part of an EKS cluster
+          "eks:ListClusters",                           // Required to list EKS clusters to find the relevant cluster for the instance
+          "ec2:DissociateIamInstanceProfile",           // Required to remove any existing IAM instance profile associations
           "ec2:DescribeIamInstanceProfileAssociations", // Required to identify existing IAM instance profile associations
-          "ec2:GetLayerVersion", // Required to get the latest SSM agent layer version for the instance's region
-          "ec2:DescribeNetworkAcls", // Required to identify the instance's current network ACLs
-          "ec2:CreateNetworkAclEntry", // Required to create new network ACL entries to block traffic to/from the instance
+          "ec2:GetLayerVersion",                        // Required to get the latest SSM agent layer version for the instance's region
+          "ec2:DescribeNetworkAcls",                    // Required to identify the instance's current network ACLs
+          "ec2:CreateNetworkAclEntry",                  // Required to create new network ACL entries to block traffic to/from the instance
         ]
         Resource = "*"
       },

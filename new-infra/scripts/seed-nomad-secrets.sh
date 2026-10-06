@@ -35,7 +35,7 @@
 # ROTATION:
 #   To rotate: update the GitHub repo secret, then re-run the pipeline.
 #   For emergency rotation, run this script manually via SSM on the runner:
-#     aws ssm start-session --target <runner-instance-id> --region eu-central-1
+#     aws ssm start-session --target <runner-instance-id> --region eu-west-1
 #     export NOMAD_OASIS_API_SECRET="<new-value>"
 #     bash new-infra/scripts/seed-nomad-secrets.sh
 #   Then restart affected pods:
@@ -43,7 +43,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-REGION="eu-central-1"
+REGION="eu-west-1"
 PLACEHOLDER="unused"
 
 # ─────────────────────────────────────────────────────────────────────────────

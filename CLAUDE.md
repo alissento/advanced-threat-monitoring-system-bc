@@ -82,19 +82,18 @@ For simple, single-domain tasks, skip step 1 — dispatch domain agent directly,
 |----------|------|--------|----|------------------------|---------|
 | `wazuh-ctrl` | t3.xlarge | private[0] | Amazon Linux 2023 | `wazuh-manager.bc-ctrl.internal`, `wazuh-indexer.bc-ctrl.internal`, `wazuh-dashboard.bc-ctrl.internal` | Wazuh all-in-one (Manager + OpenSearch Indexer + Dashboard). 60 GiB root + 200 GiB gp3 data EBS |
 | `misp-ctrl` | t3.large | private[0] | Amazon Linux 2023 | `misp.bc-ctrl.internal` | MISP threat intel platform + co-located MySQL. 30 GiB root + 60 GiB gp3 data EBS |
-| `splunk-soar-ec2` | t3.xlarge | private[0] | (Splunk SOAR AMI) | `splunk-soar.bc-ctrl.internal` | Splunk SOAR — defined in `splunksoar.tf` but **commented out** (not yet provisioned). Uncomment before demo. |
 | `github-runner-ctrl` | t3.small | public[0] | Amazon Linux 2023 | — | Self-hosted GitHub Actions runner. Used by `production-plane` CI job |
 
 Wazuh and MISP install via scripts fetched from S3 at boot (`bc-uatms-wazuh-snapshots` bucket). To re-provision, taint and re-apply: `terraform taint aws_instance.wazuh` or `aws_instance.misp`.
 
-**Splunk SOAR** replaces Shuffle as the SOAR platform. Terraform is in `splunksoar.tf` (bc-ctrl) but is fully commented out — **not currently running**. Uncomment and `terraform apply` in `bc-ctrl` before the demo. Planned instance: `t3.xlarge`, AMI `ami-00f1f079c46642ed1`, bc-ctrl private subnet, 100 GiB gp3, SSM instance profile, DNS at `splunk-soar.bc-ctrl.internal`.
+**Splunk SOAR has been removed** from the architecture (2026-10-06, account migration to `929026881368`): `splunksoar.tf` and `new-infra/splunk-soar/` are deleted. Its AMI was private to the old account. There is currently no SOAR platform.
 
 ### bc-prd EKS
 
 - **Cluster**: `bc-uatms-prd-eks`, Kubernetes 1.35, private endpoint + public (kept public until Helm complete)
 - **Nodes**: 2× `t3.medium` (min/max/desired = 2). DO NOT use t3.small (pod limit too low).
 - **CNI**: Cilium in ENI mode (`ipam.mode=eni`, `routingMode=native`). aws-node intentionally disabled via `nodeSelector: non-existent=true`.
-- **EBS CSI**: Currently disabled (commented out) — required only if Splunk SOAR (or other stateful workload) is added to EKS.
+- **EBS CSI**: Currently disabled (commented out) — required only if a stateful workload is added to EKS.
 
 ### Security Stack (bc-prd Helm Releases)
 
@@ -116,8 +115,6 @@ Cilium has Hubble relay + UI enabled (`policyEnforcementMode=default`). Falco us
 | `suricata` | suricata | `jasonish/suricata:7.0.7` | IDS/IPS. Sidecars: `misp-rule-sync` (Alpine, MISP → Suricata rules every 1h) + `rule-refresher` (ET Open rules every 6h) |
 
 **CRITICAL**: Zeek and Suricata DaemonSets require `nodeSelector: role: workload`. If this node label is missing from the node group, pods will never schedule — 0 replicas is NOT an error in the DaemonSet itself.
-
-**Splunk SOAR**: Replaces Shuffle. Terraform defined in `splunksoar.tf` (bc-ctrl) but fully commented out — not currently provisioned. No EKS involvement.
 
 ### Data Flow (Telemetry Pipeline)
 
@@ -178,7 +175,6 @@ These are not yet wired to any SIEM pipeline — they document intended detectio
 - **Terraform Configs**: `new-infra/environments/{env}/eu-central-1/`
 - **bc-ctrl VPC/fck-nat/peering**: `new-infra/environments/bc-ctrl/eu-central-1/vpc.tf`
 - **bc-ctrl GitHub Runner + MISP**: `new-infra/environments/bc-ctrl/eu-central-1/vm.tf`
-- **bc-ctrl Splunk SOAR EC2**: `new-infra/environments/bc-ctrl/eu-central-1/splunksoar.tf` (commented out — uncomment before demo)
 - **bc-ctrl Wazuh EC2**: `new-infra/environments/bc-ctrl/eu-central-1/wazuh-ec2.tf`
 - **bc-ctrl DNS (Route53)**: `new-infra/environments/bc-ctrl/eu-central-1/route53.tf`
 - **bc-prd VPC/fck-nat/peering/endpoints**: `new-infra/environments/bc-prd/eu-central-1/vpc.tf`
@@ -189,7 +185,6 @@ These are not yet wired to any SIEM pipeline — they document intended detectio
 - **Wazuh Install Script**: `new-infra/scripts/phase3-install-wazuh.sh`
 - **MISP Install Script**: `new-infra/scripts/phase4-install-misp.sh`
 - **Victim Machine Scripts**: `new-infra/scripts/victim-install-{wazuh-agent,suricata,zeek}.sh`, `victim-configure-detection.sh`
-- **Splunk SOAR EC2**: `new-infra/environments/bc-ctrl/eu-central-1/splunksoar.tf` (commented out — uncomment before demo, then `terraform apply` in bc-ctrl)
 - **Modules**: `new-infra/modules/network/vpc/`, `vpc_peering/`, `vpc/endpoints/`, `eks-addons/`
 - **Rollout Plan**: `SECURITY_STACK_ROLLOUT_PLAN.md` (phase tracker — read before touching stack)
 
@@ -347,7 +342,7 @@ Summary of open gaps:
 - **GAP-002**: MISP sidecars use `curl -k` — certificate validation disabled, MITM risk
 - **GAP-003**: No container image signing or admission control — supply chain unverified
 - **GAP-004**: Wazuh all-in-one is a single point of failure for the entire telemetry pipeline
-- **GAP-005**: Splunk SOAR EC2 **is running and TF-managed** (`splunksoar.tf` applied, not commented). It **is wired to Wazuh** (929 `wazuh_alert` containers ingested) but is a **passive sink** — 0 assets/active-playbooks/playbook-runs/actions ever (GAP-006 made concrete). **Default `soar_local_admin` creds**; role has `lambda:Invoke *` (finding F-14). Both Shuffle and Splunk SOAR receive Wazuh alerts. Reconciled 2026-06-10.
+- **GAP-005**: No SOAR platform — Splunk SOAR was removed 2026-10-06 (account migration). Wazuh's `shuffle` integration in `phase3-install-wazuh.sh` still points at a non-existent Shuffle endpoint.
 - **GAP-006**: No Wazuh active response configured — detection only, no automated enforcement
 - **GAP-007**: No certificate rotation plan for when GAP-001/002 are fixed
 - **GAP-008**: No OpenSearch S3 snapshot repository — historical alerts lost on EC2 failure, no compliance archive
@@ -366,12 +361,6 @@ Summary of open gaps:
 - **Install log**: `/var/log/misp-install.log`
 - **API key**: Stored in `bc/misp*` Secrets Manager paths. Zeek and Suricata sidecars pull this via External Secrets.
 - **Self-signed cert**: MISP uses a self-signed cert. Sidecars use `curl -k` — see **GAP-002** in `PRE_PROD_GAPS.md`.
-
-### Splunk SOAR (EC2 — bc-ctrl)
-- **Replaces Shuffle** — Terraform defined in `splunksoar.tf` (bc-ctrl) but fully commented out. **Not currently running.**
-- To provision: uncomment all resources in `splunksoar.tf` and run `terraform apply` in `new-infra/environments/bc-ctrl/eu-central-1/`. Do this before the demo.
-- Planned spec: `t3.xlarge`, AMI `ami-00f1f079c46642ed1`, 100 GiB gp3, bc-ctrl private subnet, SSM instance profile, Route53 at `splunk-soar.bc-ctrl.internal`.
-- No EKS involvement.
 
 ### Cilium ENI Mode
 - aws-node DaemonSet is kept running but neutered via `nodeSelector: non-existent=true` on the original aws-node pods — Cilium takes over IP management completely.
@@ -416,7 +405,6 @@ What's live now:
 - **Minor pod health**: `suricata` 1/4 Pending, `zeek` 1/4 pod `1/2 Error` (likely the nomad-tainted node) — worth a look.
 - **GitHub Actions Node 20 deprecation (2026-06-16)**: `checkout@v4`, `configure-aws-credentials@v4`, `setup-terraform@v3` etc. forced to Node 24 — bump action versions in the workflows.
 - **privileges-raise blind spot**: runtime exclusions are path-based (`/usr/sbin/runc` on AL2023). **Re-verify the runc path after any EKS AMI upgrade** or the kprobe flood returns.
-- **Splunk SOAR state mismatch — RESOLVED 2026-06-10 (Op-4)**: `splunk-soar-ec2` (t3.xlarge, `i-0b48cc6ea79a91a29`) is **running and TF-managed** (`splunksoar.tf` is applied, not commented). It runs Splunk SOAR 8.5.0.248 (UI nginx:8443, SSM-only, no inbound SG). It **is wired to Wazuh** (929 `wazuh_alert` containers ingested via `custom-splunk-soar.py`; Wazuh also forwards to Shuffle) but is a **passive sink** — 0 assets, 0 active playbooks, 0 playbook_runs, 0 app_runs ever (GAP-006). Admin console opens with **default `soar_local_admin` creds**; role `splunk-soar-ec2-role` has `lambda:Invoke *` (finding F-14). Docs + GAP-005 + `splunksoar.tf` comment reconciled.
 - **Node count**: doc says 2× `t3.medium`; live cluster has ~4 nodes (workload pool scaled + the `dedicated=nomad` node). Reconcile if the node group config changed.
 
 ### NOMAD Oasis + Local Keycloak (2026-05-11/12)

@@ -115,7 +115,7 @@ resource "helm_release" "cilium" {
   # AWS region for the EC2 / ENI API calls the operator makes.
   # Without this the AWS SDK falls back to IMDS lookup (slow on hostNetwork
   # in some configs) or defaults to us-east-1, so EC2 calls from a
-  # eu-central-1 cluster time out:
+  # eu-west-1 cluster time out:
   #   level=fatal msg="Unable to start eni allocator"
   #   error="unable to initialize ENI instances manager: timed out waiting for the condition"
   # Discovered 2026-05-11 run 25693xxxxx.
@@ -512,9 +512,9 @@ resource "aws_iam_role_policy" "external_secrets_secrets_manager" {
         ]
         Resource = [
           # Existing XDR stack secrets
-          "arn:aws:secretsmanager:eu-central-1:${data.aws_caller_identity.current.account_id}:secret:bc/wazuh/*",
-          "arn:aws:secretsmanager:eu-central-1:${data.aws_caller_identity.current.account_id}:secret:bc/suricata/*",
-          "arn:aws:secretsmanager:eu-central-1:${data.aws_caller_identity.current.account_id}:secret:bc/zeek/*",
+          "arn:aws:secretsmanager:${local.region}:${data.aws_caller_identity.current.account_id}:secret:bc/wazuh/*",
+          "arn:aws:secretsmanager:${local.region}:${data.aws_caller_identity.current.account_id}:secret:bc/suricata/*",
+          "arn:aws:secretsmanager:${local.region}:${data.aws_caller_identity.current.account_id}:secret:bc/zeek/*",
           # NOMAD Oasis secrets (shells created in secrets-nomad.tf; values populated by CI)
           aws_secretsmanager_secret.nomad_api.arn,
           aws_secretsmanager_secret.nomad_mongo.arn,
@@ -536,7 +536,7 @@ resource "aws_iam_role_policy" "external_secrets_secrets_manager" {
         Resource = [module.eks.kms_key_arn]
         Condition = {
           StringEquals = {
-            "kms:ViaService" = "secretsmanager.eu-central-1.amazonaws.com"
+            "kms:ViaService" = "secretsmanager.${local.region}.amazonaws.com"
           }
         }
       }

@@ -11,12 +11,12 @@ output "nomad_efs_file_system_id" {
 }
 
 output "nomad_efs_dns_name" {
-  description = "EFS DNS name for direct NFS mounts (format: <fs-id>.efs.eu-central-1.amazonaws.com)"
+  description = "EFS DNS name for direct NFS mounts (format: <fs-id>.efs.eu-west-1.amazonaws.com)"
   value       = aws_efs_file_system.nomad_oasis.dns_name
 }
 
 output "nomad_efs_mount_target_dns_names" {
-  description = "Per-AZ EFS mount target DNS names (format: <az>.<fs-id>.efs.eu-central-1.amazonaws.com)"
+  description = "Per-AZ EFS mount target DNS names (format: <az>.<fs-id>.efs.eu-west-1.amazonaws.com)"
   value = {
     for subnet_id, mt in aws_efs_mount_target.nomad_oasis :
     subnet_id => mt.dns_name

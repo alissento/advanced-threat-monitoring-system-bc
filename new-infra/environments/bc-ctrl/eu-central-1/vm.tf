@@ -14,7 +14,7 @@ resource "aws_security_group" "github_runner" {
 }
 
 resource "aws_instance" "github_runner" {
-  ami                         = "ami-0a457777ab864ed6f" # Amazon Linux 2023 x86_64
+  ami                         = data.aws_ami.al2023.id # Amazon Linux 2023 x86_64
   instance_type               = "t3.small"
   subnet_id                   = module.vpc.public_subnet_ids[0]
   associate_public_ip_address = true
@@ -52,15 +52,19 @@ resource "aws_instance" "github_runner" {
               curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
               # Get registration token using PAT
-              PAT=$(aws secretsmanager get-secret-value --secret-id bc/github/runnerpat --query SecretString --output text --region eu-central-1)
-              TOKEN=$(curl -X POST -H "Authorization: token $PAT" -H "Accept: application/vnd.github.v3+json" https://api.github.com/repos/JaamesBond/ultra-advanced-threat-monitoring-system/actions/runners/registration-token | jq -r .token)
+              PAT=$(aws secretsmanager get-secret-value --secret-id bc/github/runnerpat --query SecretString --output text --region ${local.region})
+              TOKEN=$(curl -X POST -H "Authorization: token $PAT" -H "Accept: application/vnd.github.v3+json" https://api.github.com/repos/alissento/advanced-threat-monitoring-system-bc/actions/runners/registration-token | jq -r .token)
 
-              sudo -u ec2-user ./config.sh --url https://github.com/JaamesBond/ultra-advanced-threat-monitoring-system --token $TOKEN --name $(hostname) --unattended --replace
+              sudo -u ec2-user ./config.sh --url https://github.com/alissento/advanced-threat-monitoring-system-bc --token $TOKEN --name $(hostname) --unattended --replace
               ./svc.sh install
               ./svc.sh start
               EOT
 
   tags = merge(local.common_tags, { Name = "github-runner-ctrl" })
+
+  lifecycle {
+    ignore_changes = [ami]
+  }
 }
 
 resource "aws_iam_role" "github_runner" {
@@ -172,15 +176,15 @@ resource "aws_iam_role_policy" "misp_ec2_inline" {
           "secretsmanager:PutSecretValue"
         ]
         Resource = [
-          "arn:aws:secretsmanager:eu-central-1:${data.aws_caller_identity.current.account_id}:secret:bc/misp*",
-          "arn:aws:secretsmanager:eu-central-1:${data.aws_caller_identity.current.account_id}:secret:bc/suricata/misp*",
-          "arn:aws:secretsmanager:eu-central-1:${data.aws_caller_identity.current.account_id}:secret:bc/zeek/misp*"
+          "arn:aws:secretsmanager:${local.region}:${data.aws_caller_identity.current.account_id}:secret:bc/misp*",
+          "arn:aws:secretsmanager:${local.region}:${data.aws_caller_identity.current.account_id}:secret:bc/suricata/misp*",
+          "arn:aws:secretsmanager:${local.region}:${data.aws_caller_identity.current.account_id}:secret:bc/zeek/misp*"
         ]
       },
       {
-        Sid    = "S3ScriptDownload"
-        Effect = "Allow"
-        Action = ["s3:GetObject"]
+        Sid      = "S3ScriptDownload"
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
         Resource = ["${aws_s3_bucket.wazuh_snapshots.arn}/scripts/*"]
       },
       {
@@ -252,7 +256,7 @@ resource "aws_s3_object" "misp_install_script" {
   source_hash            = filemd5("${path.module}/../../../scripts/phase4-install-misp.sh")
   server_side_encryption = "AES256"
 
-  force_destroy          = true
+  force_destroy = true
 
   lifecycle {
     ignore_changes = [object_lock_mode, object_lock_retain_until_date, object_lock_legal_hold_status]
@@ -260,7 +264,7 @@ resource "aws_s3_object" "misp_install_script" {
 }
 
 resource "aws_instance" "misp" {
-  ami                         = "ami-0a457777ab864ed6f" # Amazon Linux 2023 x86_64 eu-central-1
+  ami                         = data.aws_ami.al2023.id # Amazon Linux 2023 x86_64
   instance_type               = "t3.large"
   subnet_id                   = module.vpc.private_subnet_ids[0]
   user_data_replace_on_change = true
@@ -297,7 +301,7 @@ resource "aws_instance" "misp" {
 
     # Download and run install script
     aws s3 cp s3://${aws_s3_object.misp_install_script.bucket}/${aws_s3_object.misp_install_script.key} \
-      /tmp/phase4-install-misp.sh --region eu-central-1
+      /tmp/phase4-install-misp.sh --region ${local.region}
     # Normalize line endings: a CRLF-tainted upload (e.g. a Windows local
     # terraform apply) would otherwise fail at the script's `set -o pipefail`
     # with "invalid option name". This makes the bootstrap CRLF-immune.
@@ -309,6 +313,10 @@ resource "aws_instance" "misp" {
   tags = merge(local.common_tags, { Name = "misp-ctrl" })
 
   depends_on = [aws_s3_object.misp_install_script]
+
+  lifecycle {
+    ignore_changes = [ami]
+  }
 }
 
 resource "aws_ebs_volume" "misp_data" {

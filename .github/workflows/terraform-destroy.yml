@@ -22,8 +22,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  AWS_ACCOUNT_ID: "997916278486"
-  AWS_REGION: "eu-central-1"
+  AWS_ACCOUNT_ID: "929026881368"
+  AWS_REGION: "eu-west-1"
 
 jobs:
   prd-destroy:
@@ -39,14 +39,14 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::997916278486:role/GitHubActionsDeployRole
-          aws-region: eu-central-1
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/GitHubActionsDeployRole
+          aws-region: ${{ env.AWS_REGION }}
 
       - uses: hashicorp/setup-terraform@v3
 
       - name: Configure kubectl
         run: |
-          aws eks update-kubeconfig --region eu-central-1 --name bc-uatms-prd-eks --kubeconfig /tmp/kubeconfig-prd
+          aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name bc-uatms-prd-eks --kubeconfig /tmp/kubeconfig-prd
           echo "KUBECONFIG=/tmp/kubeconfig-prd" >> $GITHUB_ENV
         continue-on-error: true
 
@@ -94,8 +94,8 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::997916278486:role/GitHubActionsDeployRole
-          aws-region: eu-central-1
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/GitHubActionsDeployRole
+          aws-region: ${{ env.AWS_REGION }}
 
       - uses: hashicorp/setup-terraform@v3
 

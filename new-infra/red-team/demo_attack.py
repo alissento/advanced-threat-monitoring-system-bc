@@ -55,7 +55,7 @@ def banner():
   ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚═╝     ╚═╝╚══════╝    ╚═╝  ╚═╝╚══════╝╚═════╝
 """ + RESET + YELLOW + """
   Ultra Advanced Threat Monitoring System — Automated Red Team Demo
-  Target: bc-uatms-prd-eks  |  Account: 845517756853  |  Region: eu-central-1
+  Target: bc-uatms-prd-eks  |  Account: 929026881368  |  Region: eu-west-1
 """ + RESET)
 
 
@@ -441,14 +441,14 @@ def phase_cloud(delay, dry_run, verify):
             "aws", "ec2", "authorize-security-group-ingress",
             "--group-id", "sg-05910c06c787ead2a",
             "--protocol", "tcp", "--port", "31337", "--cidr", "0.0.0.0/0",
-            "--region", "eu-central-1"
+            "--region", "eu-west-1"
         ], timeout=15)
         show_result(rc, out, err, expect_blocked=False)
         run([
             "aws", "ec2", "revoke-security-group-ingress",
             "--group-id", "sg-05910c06c787ead2a",
             "--protocol", "tcp", "--port", "31337", "--cidr", "0.0.0.0/0",
-            "--region", "eu-central-1"
+            "--region", "eu-west-1"
         ], timeout=10)
         print(DIM + "  (revoked immediately)" + RESET)
     if not dry_run:
@@ -515,10 +515,10 @@ def main():
     print("  Phases:  " + args.phases)
     print("  Verify:  " + str(verify))
     print("\n" + GREEN + "  Dashboard access:" + RESET)
-    print(DIM + "  Wazuh:    aws ssm start-session --target i-0f5b346b3a4f626a6 --region eu-central-1 \\")
+    print(DIM + "  Wazuh:    aws ssm start-session --target i-0f5b346b3a4f626a6 --region eu-west-1 \\")
     print("            --document-name AWS-StartPortForwardingSession \\")
     print("            --parameters '{\"portNumber\":[\"443\"],\"localPortNumber\":[\"8443\"]}'")
-    print("  MISP:     aws ssm start-session --target i-0a32ffa7d8ba62be9 --region eu-central-1 \\")
+    print("  MISP:     aws ssm start-session --target i-0a32ffa7d8ba62be9 --region eu-west-1 \\")
     print("            --document-name AWS-StartPortForwardingSession \\")
     print("            --parameters '{\"portNumber\":[\"443\"],\"localPortNumber\":[\"8444\"]}'")
     print("  Hubble:   kubectl -n kube-system port-forward svc/hubble-ui 12000:80")

@@ -12,7 +12,7 @@
 # bc-prd node roles get AmazonEC2ContainerRegistryReadOnly
 # attached automatically by terraform-aws-modules/eks/aws ~> 20.x
 # (wired unconditionally in the managed node group IAM role).
-# Cross-account access is not needed (same account: 997916278486).
+# Cross-account access is not needed (same account: 929026881368).
 #--------------------------------------------------------------
 
 ###############################################################
