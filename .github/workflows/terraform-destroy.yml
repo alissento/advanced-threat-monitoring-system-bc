@@ -6,8 +6,24 @@ name: Terraform Destroy (v8)
 # pipeline to bring it back from cold every time.
 #
 # Order: bc-prd first (it owns the peering requester to bc-ctrl,
-# the EKS cluster, and all the helm releases) then bc-ctrl (VPC,
+# the EKS cluster, and all the helm releases; it also reads bc-ctrl
+# remote state, so bc-ctrl must still exist) then bc-ctrl (VPC,
 # Route53 zone, EC2 instances).
+#
+# Reliability design (why the steps look the way they do):
+#   - Runs on ubuntu-latest, never self-hosted: the self-hosted runner
+#     lives in bc-ctrl and would be destroyed under its own feet (and
+#     must not be a prerequisite for teardown). The EKS public endpoint
+#     is enabled, so GitHub-hosted runners can reach the API server.
+#   - In-cluster resources are removed through the cluster while Cilium
+#     and the CSI drivers are still alive, so EBS/EFS volumes and load
+#     balancers are deleted by their controllers instead of leaking.
+#   - helm_release / kubernetes_* are dropped from TF state afterwards:
+#     once the cluster is gone the providers cannot reach it, and the
+#     cluster takes those objects with it anyway.
+#   - Cilium (ENI mode) creates ENIs outside Terraform, and GuardDuty
+#     Runtime Monitoring creates VPC endpoints + SGs outside Terraform.
+#     Both block subnet/VPC deletion, so they are cleaned up explicitly.
 
 on:
   workflow_dispatch:
@@ -28,8 +44,9 @@ env:
 jobs:
   prd-destroy:
     name: Destroy Production Plane (The Data)
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     if: ${{ inputs.confirm == 'destroy' }}
+    timeout-minutes: 120
     permissions:
       id-token: write
       contents: read
@@ -42,49 +59,325 @@ jobs:
           role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/GitHubActionsDeployRole
           aws-region: ${{ env.AWS_REGION }}
 
+      # No wrapper: keep terraform stdout clean for $(...) captures.
       - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
 
-      - name: Configure kubectl
+      # Shared bash helpers, sourced by later steps. Written once so the
+      # ENI/GuardDuty cleanup can be re-run after a failed destroy.
+      - name: Write helper functions
         run: |
-          aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name bc-uatms-prd-eks --kubeconfig /tmp/kubeconfig-prd
-          echo "KUBECONFIG=/tmp/kubeconfig-prd" >> $GITHUB_ENV
-        continue-on-error: true
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/bc-helpers.sh" <<'HELPERS_EOF'
+          # ---- Helm ----
+          # Uninstall a release wherever it lives; no-op if absent.
+          # --all so failed/pending releases are found too.
+          uninstall_release() {
+            local name="$1" ns
+            ns=$(helm list -A --all -o json | jq -r --arg n "$name" '[.[] | select(.name == $n)][0].namespace // empty')
+            if [ -z "$ns" ]; then
+              echo "Release '$name' not installed; nothing to do"
+              return 0
+            fi
+            echo "Uninstalling release '$name' from namespace '$ns'"
+            helm uninstall "$name" --namespace "$ns" --wait --timeout 10m
+          }
 
-      # Best-effort cleanup of helm releases first. terraform destroy
-      # will reconcile what's left, but uninstalling explicitly via
-      # helm is faster and avoids the kubernetes provider hanging on
-      # PVCs that don't release cleanly.
-      - name: Uninstall helm releases (best-effort)
-        continue-on-error: true
+          # ---- VPC cleanup ----
+          # Resolve a VPC id from its Name tag. Prints nothing if absent;
+          # fails if the name is ambiguous or the API call errors.
+          vpc_id_by_name() {
+            local name="$1" ids count
+            ids=$(aws ec2 describe-vpcs --filters "Name=tag:Name,Values=${name}" --query 'Vpcs[].VpcId' --output text)
+            count=$(wc -w <<<"$ids")
+            if [ "$count" -gt 1 ]; then
+              echo "::error::Multiple VPCs tagged Name=${name}: ${ids}" >&2
+              return 1
+            fi
+            echo "$ids"
+          }
+
+          # Delete 'available' ENIs (Cilium operator leaks these after the
+          # nodes die). Loops until none are left to delete or 5 min pass.
+          cleanup_enis() {
+            local vpc="$1" deadline=$((SECONDS + 300)) avail detaching eni todo failed=" "
+            echo "=== ENI cleanup in $vpc ==="
+            while true; do
+              avail=$(aws ec2 describe-network-interfaces --filters "Name=vpc-id,Values=${vpc}" "Name=status,Values=available" --query 'NetworkInterfaces[].NetworkInterfaceId' --output text)
+              detaching=$(aws ec2 describe-network-interfaces --filters "Name=vpc-id,Values=${vpc}" "Name=status,Values=detaching" --query 'NetworkInterfaces[].NetworkInterfaceId' --output text)
+              todo=0
+              for eni in $avail; do
+                case "$failed" in *" $eni "*) continue ;; esac
+                todo=1
+                if aws ec2 delete-network-interface --network-interface-id "$eni"; then
+                  echo "Deleted ENI $eni"
+                else
+                  echo "::warning::Could not delete ENI $eni (requester-managed or still releasing); skipping it"
+                  failed="${failed}${eni} "
+                fi
+              done
+              if [ -n "$detaching" ]; then
+                echo "Waiting for detaching ENIs: $detaching"
+                todo=1
+              fi
+              if [ "$todo" -eq 0 ]; then
+                echo "No more ENIs to clean up"
+                break
+              fi
+              if [ "$SECONDS" -ge "$deadline" ]; then
+                echo "::warning::ENI cleanup timed out after 5 min; leftovers may block subnet deletion"
+                break
+              fi
+              sleep 10
+            done
+          }
+
+          # GuardDuty Runtime Monitoring auto-creates a guardduty-data VPC
+          # endpoint; delete it and wait until it is gone.
+          cleanup_guardduty_endpoints() {
+            local vpc="$1" deadline=$((SECONDS + 300)) eps unsuccessful
+            local -a ep_arr
+            echo "=== GuardDuty VPC endpoint cleanup in $vpc ==="
+            eps=$(aws ec2 describe-vpc-endpoints --filters "Name=vpc-id,Values=${vpc}" --query "VpcEndpoints[?contains(ServiceName, 'guardduty-data') && State != 'deleted'].VpcEndpointId" --output text)
+            if [ -z "$eps" ]; then
+              echo "No guardduty-data endpoints"
+              return 0
+            fi
+            read -r -a ep_arr <<<"$eps"
+            echo "Deleting endpoints: ${ep_arr[*]}"
+            unsuccessful=$(aws ec2 delete-vpc-endpoints --vpc-endpoint-ids "${ep_arr[@]}" --query 'Unsuccessful' --output json)
+            if [ "$unsuccessful" != "[]" ]; then
+              echo "::warning::delete-vpc-endpoints reported failures: $unsuccessful"
+            fi
+            while true; do
+              eps=$(aws ec2 describe-vpc-endpoints --filters "Name=vpc-id,Values=${vpc}" --query "VpcEndpoints[?contains(ServiceName, 'guardduty-data') && State != 'deleted'].VpcEndpointId" --output text)
+              if [ -z "$eps" ]; then
+                echo "guardduty-data endpoints deleted"
+                return 0
+              fi
+              if [ "$SECONDS" -ge "$deadline" ]; then
+                echo "::warning::guardduty-data endpoints still present after 5 min: $eps"
+                return 0
+              fi
+              echo "Waiting for endpoints to delete: $eps"
+              sleep 10
+            done
+          }
+
+          # Delete the SGs GuardDuty creates for that endpoint. Retried
+          # because the endpoint ENIs release them asynchronously.
+          cleanup_guardduty_sgs() {
+            local vpc="$1" deadline=$((SECONDS + 180)) sgs sg
+            echo "=== GuardDuty managed security group cleanup in $vpc ==="
+            while true; do
+              sgs=$(aws ec2 describe-security-groups --filters "Name=vpc-id,Values=${vpc}" --query "SecurityGroups[?starts_with(GroupName, 'GuardDutyManagedSecurityGroup')].GroupId" --output text)
+              if [ -z "$sgs" ]; then
+                echo "No GuardDuty managed security groups"
+                return 0
+              fi
+              for sg in $sgs; do
+                if aws ec2 delete-security-group --group-id "$sg"; then
+                  echo "Deleted security group $sg"
+                else
+                  echo "Could not delete $sg yet (still referenced?); will retry"
+                fi
+              done
+              if [ "$SECONDS" -ge "$deadline" ]; then
+                echo "::warning::GuardDuty managed SGs still present after 3 min; VPC deletion may fail"
+                return 0
+              fi
+              sleep 10
+            done
+          }
+
+          # Full VPC cleanup. $1 = VPC Name tag, $2 = "enis" to also clean
+          # ENIs. Order: endpoints (frees their ENIs) -> ENIs (frees SG
+          # references) -> SGs.
+          vpc_cleanup() {
+            local name="$1" mode="${2:-}" vpc
+            vpc=$(vpc_id_by_name "$name")
+            if [ -z "$vpc" ]; then
+              echo "VPC '$name' does not exist; skipping cleanup"
+              return 0
+            fi
+            echo "Cleaning up VPC $name ($vpc)"
+            cleanup_guardduty_endpoints "$vpc"
+            if [ "$mode" = "enis" ]; then
+              cleanup_enis "$vpc"
+            fi
+            cleanup_guardduty_sgs "$vpc"
+          }
+          HELPERS_EOF
+          bash -n "$RUNNER_TEMP/bc-helpers.sh"
+
+      # Is there a cluster to clean up? Anything other than a clean
+      # "not found" is an error: never guess and skip k8s cleanup.
+      - name: Detect EKS cluster
+        id: cluster
         run: |
-          for release in nomad-oasis aws-load-balancer-controller external-secrets tetragon falco cilium; do
-            echo "=== Uninstalling $release ==="
-            helm -n kube-system uninstall $release 2>/dev/null || \
-              helm -n nomad-oasis uninstall $release 2>/dev/null || \
-              helm -n falco uninstall $release 2>/dev/null || \
-              helm -n external-secrets uninstall $release 2>/dev/null || \
-              echo "$release not found"
+          set -euo pipefail
+          if out=$(aws eks describe-cluster --name bc-uatms-prd-eks 2>&1); then
+            echo "Cluster bc-uatms-prd-eks exists"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          elif grep -q 'ResourceNotFoundException' <<<"$out"; then
+            echo "Cluster bc-uatms-prd-eks does not exist; skipping Kubernetes cleanup"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::describe-cluster failed unexpectedly: $out"
+            exit 1
+          fi
+
+      - name: Configure kubectl and verify cluster access
+        if: steps.cluster.outputs.exists == 'true'
+        run: |
+          set -euo pipefail
+          aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name bc-uatms-prd-eks --kubeconfig "$RUNNER_TEMP/kubeconfig-prd"
+          echo "KUBECONFIG=$RUNNER_TEMP/kubeconfig-prd" >> "$GITHUB_ENV"
+          # Cluster exists, so it must be reachable; otherwise cleanup
+          # would silently leak EBS volumes/ALBs.
+          if ! KUBECONFIG="$RUNNER_TEMP/kubeconfig-prd" kubectl get nodes --request-timeout=20s; then
+            echo "::error::EKS cluster bc-uatms-prd-eks exists but its API server is unreachable"
+            exit 1
+          fi
+
+      # nomad-oasis first: it owns the PVCs/Ingresses; uninstalling it
+      # while Cilium + CSI + ALB controller run lets them finalize cleanly.
+      - name: Uninstall nomad-oasis
+        if: steps.cluster.outputs.exists == 'true'
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/bc-helpers.sh"
+          echo "=== Uninstall nomad-oasis ==="
+          uninstall_release nomad-oasis
+
+      # Plain (graceful) delete so the CSI drivers remove the backing
+      # EBS/EFS volumes. No --force/--grace-period=0: that orphans volumes.
+      - name: Delete PVCs and wait for PVs to be reclaimed
+        if: steps.cluster.outputs.exists == 'true'
+        run: |
+          set -euo pipefail
+          echo "=== Delete all PVCs ==="
+          kubectl delete pvc --all --all-namespaces --wait=false
+          echo "=== Waiting up to 10 min for PVs to be reclaimed by CSI drivers ==="
+          deadline=$((SECONDS + 600))
+          while true; do
+            remaining=$(kubectl get pv -o name | wc -l)
+            if [ "$remaining" -eq 0 ]; then
+              echo "All PVs reclaimed"
+              break
+            fi
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "=== PVs still present ==="
+              kubectl get pv -o custom-columns='NAME:.metadata.name,STATUS:.status.phase,CLAIM:.spec.claimRef.name,HANDLE:.spec.csi.volumeHandle'
+              summary=$(kubectl get pv -o json | jq -r '[.items[] | "\(.metadata.name) (claim \(.spec.claimRef.namespace // "-")/\(.spec.claimRef.name // "-"), volumeHandle \(.spec.csi.volumeHandle // "n/a"))"] | join("; ")')
+              echo "::warning title=PVs not reclaimed::Delete these backing EBS/EFS volumes manually after teardown: ${summary}"
+              break
+            fi
+            echo "$remaining PV(s) remaining; waiting..."
+            sleep 15
           done
 
-      # Clean up PVCs explicitly so terraform doesn't hang on
-      # PV finalizers waiting for the StorageClass provisioner.
-      - name: Delete PVCs (best-effort)
-        continue-on-error: true
+      # Ingresses and LoadBalancer Services own ALBs/NLBs + SGs created
+      # by the LB controller; delete them while it is still running or
+      # they leak and block VPC deletion.
+      - name: Delete Ingresses and LoadBalancer Services
+        if: steps.cluster.outputs.exists == 'true'
         run: |
-          kubectl delete pvc --all -n nomad-oasis --grace-period=0 --force --timeout=60s || true
-          kubectl delete pv --all --grace-period=0 --force --timeout=60s || true
+          set -euo pipefail
+          echo "=== Delete Ingresses ==="
+          if ! kubectl delete ingress --all --all-namespaces --wait=true --timeout=5m; then
+            echo "::warning::Some Ingresses did not delete within 5 min; ALBs may need manual cleanup"
+          fi
+          echo "=== Delete LoadBalancer Services ==="
+          kubectl get svc --all-namespaces -o json \
+            | jq -r '.items[] | select(.spec.type == "LoadBalancer") | "\(.metadata.namespace) \(.metadata.name)"' \
+            | while read -r ns name; do
+                echo "Deleting LoadBalancer service $ns/$name"
+                if ! kubectl delete svc "$name" -n "$ns" --wait=true --timeout=5m; then
+                  echo "::warning::Service $ns/$name did not delete within 5 min; its load balancer may need manual cleanup"
+                fi
+              done
 
-      - name: Terraform destroy bc-prd
+      # Cilium is deliberately NOT uninstalled: removing the CNI first
+      # breaks pod networking for the remaining cleanup; it dies with the
+      # cluster. Failures here are non-fatal: the cluster is destroyed next.
+      - name: Uninstall controllers (ALB controller, external-secrets, tetragon, falco)
+        if: steps.cluster.outputs.exists == 'true'
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/bc-helpers.sh"
+          for release in aws-load-balancer-controller external-secrets tetragon falco; do
+            echo "=== Uninstall $release ==="
+            if ! uninstall_release "$release"; then
+              echo "::warning::helm uninstall of $release failed; continuing (cluster is destroyed next)"
+            fi
+          done
+
+      # Runs even when the cluster is already gone (re-run after a partial
+      # destroy): the k8s/helm providers cannot reach a dead cluster, and
+      # the objects die with it, so drop them from state.
+      - name: Remove helm_release and kubernetes_* from Terraform state
         working-directory: new-infra/environments/bc-prd/eu-central-1
         run: |
-          terraform init -reconfigure
-          terraform destroy -auto-approve
+          set -euo pipefail
+          terraform init -reconfigure -input=false
+          # Capture first: piping `terraform state list` into grep under
+          # pipefail false-fails when state list exits non-zero.
+          STATE_LIST=$(terraform state list 2>/dev/null || true)
+          # grep exits 1 on no match, which is a valid outcome here.
+          ADDRS=$(grep -E '^(module\.[^[:space:]]+\.)?(helm_release|kubernetes_[a-z0-9_]+)\.' <<<"$STATE_LIST" || true)
+          if [ -z "$ADDRS" ]; then
+            echo "No helm_release/kubernetes_* resources in state"
+          else
+            echo "Removing from state:"
+            echo "$ADDRS"
+            mapfile -t ADDR_ARR <<<"$ADDRS"
+            terraform state rm "${ADDR_ARR[@]}"
+          fi
+
+      # EKS first (own phase) so nodes/ENIs are gone before we sweep the
+      # VPC. Refresh the state list: it changed in the previous step.
+      - name: Terraform destroy bc-prd — Phase 1 (EKS)
+        working-directory: new-infra/environments/bc-prd/eu-central-1
+        run: |
+          set -euo pipefail
+          STATE_LIST=$(terraform state list 2>/dev/null || true)
+          if grep -qE '^module\.eks\.' <<<"$STATE_LIST"; then
+            echo "=== Destroy module.eks ==="
+            terraform destroy -auto-approve -input=false -lock-timeout=5m -target=module.eks
+          else
+            echo "module.eks not in state; skipping Phase 1"
+          fi
+
+      # Cilium operator ENIs and GuardDuty-managed endpoint/SGs live
+      # outside Terraform and block subnet/VPC deletion.
+      - name: Clean up bc-prd VPC (ENIs, GuardDuty endpoint/SGs)
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/bc-helpers.sh"
+          vpc_cleanup bc-uatms-prd-vpc enis
+
+      - name: Terraform destroy bc-prd — Phase 2 (everything else)
+        working-directory: new-infra/environments/bc-prd/eu-central-1
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/bc-helpers.sh"
+          echo "=== Destroy bc-prd (full) ==="
+          if terraform destroy -auto-approve -input=false -lock-timeout=5m; then
+            exit 0
+          fi
+          echo "::warning::terraform destroy failed; re-running VPC cleanup and retrying once"
+          vpc_cleanup bc-uatms-prd-vpc enis
+          echo "=== Destroy bc-prd (retry) ==="
+          terraform destroy -auto-approve -input=false -lock-timeout=5m
 
   ctrl-destroy:
     name: Destroy Control Plane (The Brain)
     runs-on: ubuntu-latest
     needs: prd-destroy
     if: ${{ inputs.confirm == 'destroy' }}
+    timeout-minutes: 60
     permissions:
       id-token: write
       contents: read
@@ -98,9 +391,113 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      # Same VPC helpers as prd-destroy (duplicated: separate job/runner).
+      # ctrl has no EKS, so only the GuardDuty endpoint/SG part is used.
+      - name: Write helper functions
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/bc-helpers.sh" <<'HELPERS_EOF'
+          vpc_id_by_name() {
+            local name="$1" ids count
+            ids=$(aws ec2 describe-vpcs --filters "Name=tag:Name,Values=${name}" --query 'Vpcs[].VpcId' --output text)
+            count=$(wc -w <<<"$ids")
+            if [ "$count" -gt 1 ]; then
+              echo "::error::Multiple VPCs tagged Name=${name}: ${ids}" >&2
+              return 1
+            fi
+            echo "$ids"
+          }
+
+          cleanup_guardduty_endpoints() {
+            local vpc="$1" deadline=$((SECONDS + 300)) eps unsuccessful
+            local -a ep_arr
+            echo "=== GuardDuty VPC endpoint cleanup in $vpc ==="
+            eps=$(aws ec2 describe-vpc-endpoints --filters "Name=vpc-id,Values=${vpc}" --query "VpcEndpoints[?contains(ServiceName, 'guardduty-data') && State != 'deleted'].VpcEndpointId" --output text)
+            if [ -z "$eps" ]; then
+              echo "No guardduty-data endpoints"
+              return 0
+            fi
+            read -r -a ep_arr <<<"$eps"
+            echo "Deleting endpoints: ${ep_arr[*]}"
+            unsuccessful=$(aws ec2 delete-vpc-endpoints --vpc-endpoint-ids "${ep_arr[@]}" --query 'Unsuccessful' --output json)
+            if [ "$unsuccessful" != "[]" ]; then
+              echo "::warning::delete-vpc-endpoints reported failures: $unsuccessful"
+            fi
+            while true; do
+              eps=$(aws ec2 describe-vpc-endpoints --filters "Name=vpc-id,Values=${vpc}" --query "VpcEndpoints[?contains(ServiceName, 'guardduty-data') && State != 'deleted'].VpcEndpointId" --output text)
+              if [ -z "$eps" ]; then
+                echo "guardduty-data endpoints deleted"
+                return 0
+              fi
+              if [ "$SECONDS" -ge "$deadline" ]; then
+                echo "::warning::guardduty-data endpoints still present after 5 min: $eps"
+                return 0
+              fi
+              echo "Waiting for endpoints to delete: $eps"
+              sleep 10
+            done
+          }
+
+          cleanup_guardduty_sgs() {
+            local vpc="$1" deadline=$((SECONDS + 180)) sgs sg
+            echo "=== GuardDuty managed security group cleanup in $vpc ==="
+            while true; do
+              sgs=$(aws ec2 describe-security-groups --filters "Name=vpc-id,Values=${vpc}" --query "SecurityGroups[?starts_with(GroupName, 'GuardDutyManagedSecurityGroup')].GroupId" --output text)
+              if [ -z "$sgs" ]; then
+                echo "No GuardDuty managed security groups"
+                return 0
+              fi
+              for sg in $sgs; do
+                if aws ec2 delete-security-group --group-id "$sg"; then
+                  echo "Deleted security group $sg"
+                else
+                  echo "Could not delete $sg yet (still referenced?); will retry"
+                fi
+              done
+              if [ "$SECONDS" -ge "$deadline" ]; then
+                echo "::warning::GuardDuty managed SGs still present after 3 min; VPC deletion may fail"
+                return 0
+              fi
+              sleep 10
+            done
+          }
+
+          vpc_cleanup() {
+            local name="$1" vpc
+            vpc=$(vpc_id_by_name "$name")
+            if [ -z "$vpc" ]; then
+              echo "VPC '$name' does not exist; skipping cleanup"
+              return 0
+            fi
+            echo "Cleaning up VPC $name ($vpc)"
+            cleanup_guardduty_endpoints "$vpc"
+            cleanup_guardduty_sgs "$vpc"
+          }
+          HELPERS_EOF
+          bash -n "$RUNNER_TEMP/bc-helpers.sh"
+
+      # GuardDuty auto-creates an endpoint + SGs outside Terraform that
+      # block VPC deletion.
+      - name: Clean up bc-ctrl VPC (GuardDuty endpoint/SGs)
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/bc-helpers.sh"
+          vpc_cleanup bc-uatms-ctrl-vpc
 
       - name: Terraform destroy bc-ctrl
         working-directory: new-infra/environments/bc-ctrl/eu-central-1
         run: |
-          terraform init -reconfigure
-          terraform destroy -auto-approve
+          set -euo pipefail
+          source "$RUNNER_TEMP/bc-helpers.sh"
+          terraform init -reconfigure -input=false
+          echo "=== Destroy bc-ctrl ==="
+          if terraform destroy -auto-approve -input=false -lock-timeout=5m; then
+            exit 0
+          fi
+          echo "::warning::terraform destroy failed; re-running VPC cleanup and retrying once"
+          vpc_cleanup bc-uatms-ctrl-vpc
+          echo "=== Destroy bc-ctrl (retry) ==="
+          terraform destroy -auto-approve -input=false -lock-timeout=5m
