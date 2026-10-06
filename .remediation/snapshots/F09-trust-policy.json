@@ -4,7 +4,7 @@
         {
             "Effect": "Allow",
             "Principal": {
-                "Federated": "arn:aws:iam::997916278486:oidc-provider/token.actions.githubusercontent.com"
+                "Federated": "arn:aws:iam::929026881368:oidc-provider/token.actions.githubusercontent.com"
             },
             "Action": "sts:AssumeRoleWithWebIdentity",
             "Condition": {
@@ -12,7 +12,10 @@
                     "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
                 },
                 "StringLike": {
-                    "token.actions.githubusercontent.com:sub": "repo:JaamesBond/ultra-advanced-threat-monitoring-system:*"
+                    "token.actions.githubusercontent.com:sub": [
+                        "repo:alissento@149685323/advanced-threat-monitoring-system-bc@1301669703:*",
+                        "repo:alissento/advanced-threat-monitoring-system-bc:*"
+                    ]
                 }
             }
         }

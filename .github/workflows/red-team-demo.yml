@@ -1,178 +1,178 @@
-name: Red Team Demo
+# name: Red Team Demo
 
-on:
-  workflow_dispatch:
-    inputs:
-      phases:
-        description: "Attack phases (all | recon | execution | lateral | exfil | cloud | recon,execution)"
-        required: false
-        default: "all"
-      speed:
-        description: "Demo pacing"
-        required: false
-        default: "normal"
-        type: choice
-        options:
-          - slow      # 20s between attacks — for presenters who talk
-          - normal    # 10s between attacks
-          - fast      # 4s between attacks — quick run-through
-      verify_detections:
-        description: "Print detection verification after each attack"
-        required: false
-        default: "true"
-        type: choice
-        options: ["true", "false"]
+# on:
+#   workflow_dispatch:
+#     inputs:
+#       phases:
+#         description: "Attack phases (all | recon | execution | lateral | exfil | cloud | recon,execution)"
+#         required: false
+#         default: "all"
+#       speed:
+#         description: "Demo pacing"
+#         required: false
+#         default: "normal"
+#         type: choice
+#         options:
+#           - slow      # 20s between attacks — for presenters who talk
+#           - normal    # 10s between attacks
+#           - fast      # 4s between attacks — quick run-through
+#       verify_detections:
+#         description: "Print detection verification after each attack"
+#         required: false
+#         default: "true"
+#         type: choice
+#         options: ["true", "false"]
 
-env:
-  AWS_ACCOUNT_ID: "929026881368"
-  AWS_REGION: "eu-west-1"
+# env:
+#   AWS_ACCOUNT_ID: "929026881368"
+#   AWS_REGION: "eu-west-1"
 
-jobs:
-  red-team-demo:
-    name: "🔴 Red Team Demo — ${{ inputs.phases }}"
-    runs-on: self-hosted
-    environment: production
+# jobs:
+#   red-team-demo:
+#     name: "🔴 Red Team Demo — ${{ inputs.phases }}"
+#     runs-on: self-hosted
+#     environment: production
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+#     steps:
+#       - name: Checkout
+#         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/GitHubActionsDeployRole
-          aws-region: ${{ env.AWS_REGION }}
+#       - name: Configure AWS credentials (OIDC)
+#         uses: aws-actions/configure-aws-credentials@v4
+#         with:
+#           role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/GitHubActionsDeployRole
+#           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Get EKS kubeconfig
-        run: |
-          aws eks update-kubeconfig \
-            --region ${{ env.AWS_REGION }} \
-            --name bc-uatms-prd-eks \
-            --kubeconfig /tmp/kubeconfig-demo
-          echo "KUBECONFIG=/tmp/kubeconfig-demo" >> "$GITHUB_ENV"
+#       - name: Get EKS kubeconfig
+#         run: |
+#           aws eks update-kubeconfig \
+#             --region ${{ env.AWS_REGION }} \
+#             --name bc-uatms-prd-eks \
+#             --kubeconfig /tmp/kubeconfig-demo
+#           echo "KUBECONFIG=/tmp/kubeconfig-demo" >> "$GITHUB_ENV"
 
-      - name: Verify attacker pod is running
-        run: |
-          kubectl get pod attacker -n default -o wide
-          kubectl get pod target   -n default -o wide
-          echo ""
-          echo "Sensor pods:"
-          kubectl get pods -n falco    -o wide
-          kubectl get pods -n kube-system -l app.kubernetes.io/name=tetragon -o wide
-          kubectl get pods -n zeek     -o wide
-          kubectl get pods -n suricata -o wide
+#       - name: Verify attacker pod is running
+#         run: |
+#           kubectl get pod attacker -n default -o wide
+#           kubectl get pod target   -n default -o wide
+#           echo ""
+#           echo "Sensor pods:"
+#           kubectl get pods -n falco    -o wide
+#           kubectl get pods -n kube-system -l app.kubernetes.io/name=tetragon -o wide
+#           kubectl get pods -n zeek     -o wide
+#           kubectl get pods -n suricata -o wide
 
-      - name: Open dashboard tunnel instructions
-        run: |
-          echo "════════════════════════════════════════════════════════"
-          echo "  DASHBOARD ACCESS — open these in separate terminals"
-          echo "════════════════════════════════════════════════════════"
-          echo ""
-          echo "  Wazuh Dashboard → https://localhost:8443"
-          echo "  aws ssm start-session \\"
-          echo "    --target i-0f5b346b3a4f626a6 --region ${{ env.AWS_REGION }} \\"
-          echo "    --document-name AWS-StartPortForwardingSession \\"
-          echo "    --parameters '{\"portNumber\":[\"443\"],\"localPortNumber\":[\"8443\"]}'"
-          echo ""
-          echo "  MISP → https://localhost:8444"
-          echo "  aws ssm start-session \\"
-          echo "    --target i-0a32ffa7d8ba62be9 --region ${{ env.AWS_REGION }} \\"
-          echo "    --document-name AWS-StartPortForwardingSession \\"
-          echo "    --parameters '{\"portNumber\":[\"443\"],\"localPortNumber\":[\"8444\"]}'"
-          echo ""
-          echo "  Hubble UI → http://localhost:12000"
-          echo "  kubectl -n kube-system port-forward svc/hubble-ui 12000:80"
-          echo ""
-          echo "  Falco live stream:"
-          echo "  kubectl -n falco logs -l app.kubernetes.io/name=falco -c falco -f"
-          echo ""
-          echo "  Tetragon live stream:"
-          echo "  kubectl -n kube-system logs ds/tetragon -c export-stdout -f"
-          echo "════════════════════════════════════════════════════════"
+#       - name: Open dashboard tunnel instructions
+#         run: |
+#           echo "════════════════════════════════════════════════════════"
+#           echo "  DASHBOARD ACCESS — open these in separate terminals"
+#           echo "════════════════════════════════════════════════════════"
+#           echo ""
+#           echo "  Wazuh Dashboard → https://localhost:8443"
+#           echo "  aws ssm start-session \\"
+#           echo "    --target i-0f5b346b3a4f626a6 --region ${{ env.AWS_REGION }} \\"
+#           echo "    --document-name AWS-StartPortForwardingSession \\"
+#           echo "    --parameters '{\"portNumber\":[\"443\"],\"localPortNumber\":[\"8443\"]}'"
+#           echo ""
+#           echo "  MISP → https://localhost:8444"
+#           echo "  aws ssm start-session \\"
+#           echo "    --target i-0a32ffa7d8ba62be9 --region ${{ env.AWS_REGION }} \\"
+#           echo "    --document-name AWS-StartPortForwardingSession \\"
+#           echo "    --parameters '{\"portNumber\":[\"443\"],\"localPortNumber\":[\"8444\"]}'"
+#           echo ""
+#           echo "  Hubble UI → http://localhost:12000"
+#           echo "  kubectl -n kube-system port-forward svc/hubble-ui 12000:80"
+#           echo ""
+#           echo "  Falco live stream:"
+#           echo "  kubectl -n falco logs -l app.kubernetes.io/name=falco -c falco -f"
+#           echo ""
+#           echo "  Tetragon live stream:"
+#           echo "  kubectl -n kube-system logs ds/tetragon -c export-stdout -f"
+#           echo "════════════════════════════════════════════════════════"
 
-      - name: Run attack scenarios
-        run: |
-          NO_VERIFY_FLAG=""
-          if [ "${{ inputs.verify_detections }}" = "false" ]; then
-            NO_VERIFY_FLAG="--no-verify"
-          fi
+#       - name: Run attack scenarios
+#         run: |
+#           NO_VERIFY_FLAG=""
+#           if [ "${{ inputs.verify_detections }}" = "false" ]; then
+#             NO_VERIFY_FLAG="--no-verify"
+#           fi
 
-          python3 new-infra/red-team/demo_attack.py \
-            --phases "${{ inputs.phases }}" \
-            --speed  "${{ inputs.speed }}" \
-            $NO_VERIFY_FLAG
+#           python3 new-infra/red-team/demo_attack.py \
+#             --phases "${{ inputs.phases }}" \
+#             --speed  "${{ inputs.speed }}" \
+#             $NO_VERIFY_FLAG
 
-      - name: Post-run detection summary
-        if: always()
-        run: |
-          echo ""
-          echo "════════════════════════════════════════════════════════"
-          echo "  POST-RUN DETECTION SUMMARY"
-          echo "════════════════════════════════════════════════════════"
-          echo ""
-          echo "--- Tetragon SIGKILL events (last 10min) ---"
-          kubectl -n kube-system logs ds/tetragon -c export-stdout --since=10m 2>/dev/null \
-            | python3 -c "
-import sys, json
-kills = []
-for line in sys.stdin:
-    try:
-        d = json.loads(line.strip())
-        kp = d.get('process_kprobe', {})
-        if kp.get('action') == 'KPROBE_ACTION_SIGKILL':
-            binary = kp.get('process', {}).get('binary', '?')
-            policy = kp.get('policy_name', '?')
-            t      = d.get('time', '')[:19]
-            kills.append(f'  [{t}] SIGKILL {binary}  policy={policy}')
-    except Exception:
-        pass
-for k in kills[-10:]:
-    print(k)
-if not kills:
-    print('  (none in window)')
-" || echo "  (could not read tetragon logs)"
+#       - name: Post-run detection summary
+#         if: always()
+#         run: |
+#           echo ""
+#           echo "════════════════════════════════════════════════════════"
+#           echo "  POST-RUN DETECTION SUMMARY"
+#           echo "════════════════════════════════════════════════════════"
+#           echo ""
+#           echo "--- Tetragon SIGKILL events (last 10min) ---"
+#           kubectl -n kube-system logs ds/tetragon -c export-stdout --since=10m 2>/dev/null \
+#             | python3 -c "
+# import sys, json
+# kills = []
+# for line in sys.stdin:
+#     try:
+#         d = json.loads(line.strip())
+#         kp = d.get('process_kprobe', {})
+#         if kp.get('action') == 'KPROBE_ACTION_SIGKILL':
+#             binary = kp.get('process', {}).get('binary', '?')
+#             policy = kp.get('policy_name', '?')
+#             t      = d.get('time', '')[:19]
+#             kills.append(f'  [{t}] SIGKILL {binary}  policy={policy}')
+#     except Exception:
+#         pass
+# for k in kills[-10:]:
+#     print(k)
+# if not kills:
+#     print('  (none in window)')
+# " || echo "  (could not read tetragon logs)"
 
-          echo ""
-          echo "--- Falco critical/warning alerts (last 10min) ---"
-          kubectl -n falco logs -l app.kubernetes.io/name=falco -c falco --since=10m 2>/dev/null \
-            | python3 -c "
-import sys, json
-hits = []
-for line in sys.stdin:
-    try:
-        d = json.loads(line.strip())
-        pri = d.get('priority', '')
-        if pri in ('Critical', 'Warning'):
-            ns   = d.get('output_fields', {}).get('k8s.ns.name', '?')
-            rule = d.get('rule', '?')
-            t    = d.get('time', '')[:19]
-            hits.append(f'  [{t}] [{pri}] {rule}  ns={ns}')
-    except Exception:
-        pass
-seen = {}
-for h in hits:
-    key = h[25:]
-    if key not in seen:
-        seen[key] = h
-for h in list(seen.values())[-10:]:
-    print(h)
-if not hits:
-    print('  (none in window)')
-" || echo "  (could not read falco logs)"
+#           echo ""
+#           echo "--- Falco critical/warning alerts (last 10min) ---"
+#           kubectl -n falco logs -l app.kubernetes.io/name=falco -c falco --since=10m 2>/dev/null \
+#             | python3 -c "
+# import sys, json
+# hits = []
+# for line in sys.stdin:
+#     try:
+#         d = json.loads(line.strip())
+#         pri = d.get('priority', '')
+#         if pri in ('Critical', 'Warning'):
+#             ns   = d.get('output_fields', {}).get('k8s.ns.name', '?')
+#             rule = d.get('rule', '?')
+#             t    = d.get('time', '')[:19]
+#             hits.append(f'  [{t}] [{pri}] {rule}  ns={ns}')
+#     except Exception:
+#         pass
+# seen = {}
+# for h in hits:
+#     key = h[25:]
+#     if key not in seen:
+#         seen[key] = h
+# for h in list(seen.values())[-10:]:
+#     print(h)
+# if not hits:
+#     print('  (none in window)')
+# " || echo "  (could not read falco logs)"
 
-          echo ""
-          echo "--- Zeek lateral movement traces (last 10min) ---"
-          kubectl exec -n zeek zeek-nqdqx -c zeek -- \
-            bash -c "tail -200 /var/log/zeek/conn.log 2>/dev/null | grep 10.30.11.131 | tail -8" \
-            | python3 -c "
-import sys, json
-for line in sys.stdin:
-    try:
-        d = json.loads(line.strip())
-        print(f\"  {d.get('id.orig_h')}:{d.get('id.orig_p')} -> {d.get('id.resp_h')}:{d.get('id.resp_p')}  state={d.get('conn_state')}\")
-    except Exception:
-        pass
-" 2>/dev/null || echo "  (no zeek data)"
+#           echo ""
+#           echo "--- Zeek lateral movement traces (last 10min) ---"
+#           kubectl exec -n zeek zeek-nqdqx -c zeek -- \
+#             bash -c "tail -200 /var/log/zeek/conn.log 2>/dev/null | grep 10.30.11.131 | tail -8" \
+#             | python3 -c "
+# import sys, json
+# for line in sys.stdin:
+#     try:
+#         d = json.loads(line.strip())
+#         print(f\"  {d.get('id.orig_h')}:{d.get('id.orig_p')} -> {d.get('id.resp_h')}:{d.get('id.resp_p')}  state={d.get('conn_state')}\")
+#     except Exception:
+#         pass
+# " 2>/dev/null || echo "  (no zeek data)"
 
-          echo ""
-          echo "════════════════════════════════════════════════════════"
+#           echo ""
+#           echo "════════════════════════════════════════════════════════"
