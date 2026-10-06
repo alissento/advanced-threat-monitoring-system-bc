@@ -1,4 +1,4 @@
-name: Terraform Destroy (v8)
+name: Terraform Destroy (v9)
 
 # Manual destroy of bc-prd + bc-ctrl. This is the on-demand teardown
 # path documented in CLAUDE.md "On-demand teardown" — the resting

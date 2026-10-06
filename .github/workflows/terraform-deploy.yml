@@ -1,4 +1,4 @@
-name: Terraform Deploy (v8)
+name: Terraform Deploy (v9)
 
 on:
   push:
