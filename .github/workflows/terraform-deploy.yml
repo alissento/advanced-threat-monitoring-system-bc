@@ -188,7 +188,7 @@ jobs:
       #     State drift from a cancelled apply. Fail loud.
       #     Manual recovery required before this pipeline can run:
       #       1. terraform state pull > backup.tfstate
-      #       2. providers.override.tf witsh empty helm { kubernetes {} }
+      #       2. providers.override.tf with empty helm { kubernetes {} }
       #       3. terraform import <addr> <id> for each missing resource
       #       4. terraform plan to verify no unexpected destroys
       #       5. Remove providers.override.tf, commit — state is healthy

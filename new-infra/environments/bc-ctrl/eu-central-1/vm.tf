@@ -32,8 +32,9 @@ resource "aws_instance" "github_runner" {
 
               # GitHub Runner Setup
               mkdir -p /home/ec2-user/actions-runner && cd /home/ec2-user/actions-runner
-              curl -o actions-runner-linux-x64-2.316.1.tar.gz -L https://github.com/actions/runner/releases/download/v2.316.1/actions-runner-linux-x64-2.316.1.tar.gz
-              tar xzf ./actions-runner-linux-x64-2.316.1.tar.gz
+              RUNNER_VERSION=$(curl -fsSL https://api.github.com/repos/actions/runner/releases/latest | jq -r .tag_name | sed 's/^v//')
+              curl -fsSL -o actions-runner.tar.gz https://github.com/actions/runner/releases/download/v$${RUNNER_VERSION}/actions-runner-linux-x64-$${RUNNER_VERSION}.tar.gz
+              tar xzf ./actions-runner.tar.gz
               chown -R ec2-user:ec2-user /home/ec2-user/actions-runner
 
               # Install dependencies
