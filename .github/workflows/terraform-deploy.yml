@@ -659,6 +659,64 @@ jobs:
               || echo "WARN: $d not yet Available after 600s — proceeding (downstream waits will catch real failures)"
           done
 
+      # Verify cluster DNS resolves NOMAD services (self-heal CoreDNS)
+      #
+      # Cold-start symptom: after the "Heal kube-system pods after Cilium
+      # install" step restarts CoreDNS, one replica can come up with broken
+      # networking (its API watch dies and the upstream 10.30.0.2:53 times
+      # out). It keeps answering from its startup snapshot, so Services
+      # created later (all NOMAD services from the Stage 2d Helm release)
+      # get NXDOMAIN and Step A fails with
+      # "psql: could not translate host name nomad-oasis-postgresql".
+      # Probe resolution from a pod in `default` (nomad-oasis enforces
+      # restricted PSS) and restart CoreDNS + node-local-dns if it fails.
+      - name: Verify cluster DNS resolves NOMAD services (self-heal CoreDNS)
+        run: |
+          set -euo pipefail
+
+          # Pass only if all 3 lookups return the Service ClusterIP line
+          # ("Address: 172.x.x.x" with no :port — excludes the server line
+          # "Address: 172.20.0.10:53").
+          check() {
+            local i out
+            for i in 1 2 3; do
+              out=$(kubectl run "dnscheck-$RANDOM" --rm -i --restart=Never \
+                -n default --image=busybox:1.36 --quiet \
+                --overrides='{"spec":{"nodeSelector":{"role":"nomad"},"tolerations":[{"key":"dedicated","operator":"Equal","value":"nomad","effect":"NoSchedule"}]}}' \
+                -- nslookup nomad-oasis-postgresql.nomad-oasis.svc.cluster.local 2>&1 || true)
+              if ! printf '%s\n' "$out" | tr -d '\r' | grep -qE '^Address: 172\.[0-9.]+[[:space:]]*$'; then
+                echo "DNS lookup $i/3 failed:"
+                printf '%s\n' "$out" | sed 's/^/  | /'
+                return 1
+              fi
+              echo "DNS lookup $i/3 OK"
+            done
+            return 0
+          }
+
+          for attempt in 1 2 3; do
+            if check; then
+              echo "Cluster DNS healthy (attempt $attempt)"
+              exit 0
+            fi
+            echo "::warning::Cluster DNS check failed (attempt $attempt/3) — restarting CoreDNS + node-local-dns"
+            kubectl -n kube-system rollout restart deploy/coredns ds/node-local-dns
+            kubectl -n kube-system rollout status deploy/coredns --timeout=180s
+            kubectl -n kube-system rollout status ds/node-local-dns --timeout=180s
+            sleep 15
+          done
+
+          # Final re-check after the last restart
+          if check; then
+            echo "Cluster DNS healthy after self-heal"
+            exit 0
+          fi
+
+          kubectl -n kube-system get pods -l k8s-app=kube-dns -o wide || true
+          kubectl -n kube-system logs -l k8s-app=kube-dns --tail=20 || true
+          echo "::error::Cluster DNS still not resolving NOMAD services after 3 CoreDNS restarts"
+          exit 1
+
       # Step A: Run Keycloak DB init Job
       #
       # Creates the 'keycloak' PostgreSQL role and database idempotently.
